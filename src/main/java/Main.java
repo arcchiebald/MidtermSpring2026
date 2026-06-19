@@ -1,7 +1,10 @@
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Random;
 import java.util.Scanner;
+import java.util.logging.LogManager;
 
 public class Main {
     static ArrayList<String> playerNames = new ArrayList<>();
@@ -19,6 +22,8 @@ public class Main {
     static ConsoleIO io;
 
     public static void main(String[] args) {
+        configureLogging();
+
         int bots = 3;
         int games = 1;
         boolean human = false;
@@ -57,12 +62,23 @@ public class Main {
             if (!quiet) {
                 System.out.println("\n=== Game " + g + " ===");
             }
+            GameLog.gameStart(g, playerNames.size());
             playGame();
         }
 
         System.out.println("\nFinal scores:");
         for (int i = 0; i < playerNames.size(); i++) {
             System.out.println(playerNames.get(i) + ": " + scores[i]);
+        }
+        GameLog.sessionEnd();
+    }
+
+    static void configureLogging() {
+        try (InputStream in = Main.class.getClassLoader().getResourceAsStream("logging.properties")) {
+            if (in != null) {
+                LogManager.getLogManager().readConfiguration(in);
+            }
+        } catch (IOException ignored) {
         }
     }
 
@@ -127,12 +143,13 @@ public class Main {
             String name = playerNames.get(currentPlayer);
             ArrayList<String> hand = hands.get(currentPlayer);
 
+            GameLog.playerTurn(name);
             io.showUpCard(upCard, calledColor);
             io.showHand(name, hand);
 
             int chosen = -1;
             if (humanPlayers.get(currentPlayer)) {
-                chosen = io.askHuman(hand, upCard, calledColor);
+                chosen = io.askHuman(name, hand, upCard, calledColor);
             } else {
                 chosen = BotStrategy.chooseCard(hand, upCard, calledColor);
             }
@@ -140,6 +157,7 @@ public class Main {
             if (chosen == -1) {
                 String drawn = draw();
                 hand.add(drawn);
+                GameLog.cardDrawn(name, drawn);
                 io.showDraw(name, drawn);
                 if (CardRules.isLegal(drawn, upCard, calledColor)) {
                     if (!humanPlayers.get(currentPlayer)) {
@@ -152,8 +170,11 @@ public class Main {
 
             if (chosen >= 0) {
                 if (chosen >= hand.size()) {
+                    GameLog.invalidInput(name, "invalid card index");
                     io.showInvalidIndex(name);
-                    hand.add(draw());
+                    String penalty = draw();
+                    hand.add(penalty);
+                    GameLog.cardDrawn(name, penalty);
                     next();
                     continue;
                 }
@@ -161,8 +182,11 @@ public class Main {
                 String card = hand.get(chosen);
 
                 if (!CardRules.isLegal(card, upCard, calledColor)) {
+                    GameLog.invalidInput(name, "illegal card " + card);
                     io.showIllegalCard(name, card);
-                    hand.add(draw());
+                    String penalty = draw();
+                    hand.add(penalty);
+                    GameLog.cardDrawn(name, penalty);
                     next();
                     continue;
                 }
@@ -171,11 +195,12 @@ public class Main {
                 discard.add(upCard);
                 upCard = card;
                 calledColor = "";
+                GameLog.cardPlayed(name, card);
                 io.showPlay(name, card);
 
                 if (card.equals("W") || card.equals("W4")) {
                     if (humanPlayers.get(currentPlayer)) {
-                        calledColor = io.askColor();
+                        calledColor = io.askColor(name);
                     } else {
                         calledColor = BotStrategy.chooseColor(hand);
                     }
@@ -189,6 +214,7 @@ public class Main {
                 if (hand.isEmpty()) {
                     int points = ScoreCalculator.scoreOpponents(hands, currentPlayer);
                     scores[currentPlayer] += points;
+                    GameLog.roundEnd(name, points);
                     io.showWin(name, points);
                     return;
                 }
@@ -198,6 +224,7 @@ public class Main {
                 next();
             }
         }
+        GameLog.gameEnd();
         io.showGameStopped();
     }
 
@@ -208,8 +235,11 @@ public class Main {
         }
         if (effect.getDrawCount() > 0) {
             next();
+            String penalized = playerNames.get(currentPlayer);
             for (int i = 0; i < effect.getDrawCount(); i++) {
-                hands.get(currentPlayer).add(draw());
+                String drawn = draw();
+                hands.get(currentPlayer).add(drawn);
+                GameLog.cardDrawn(penalized, drawn);
             }
             io.showDrawPenalty(playerNames.get(currentPlayer), effect.getDrawCount());
             next();

@@ -91,7 +91,7 @@ class ConsoleIO {
         System.out.println("Game stopped at safety limit.");
     }
 
-    int askHuman(List<String> hand, String upCard, String calledColor) {
+    int askHuman(String playerName, List<String> hand, String upCard, String calledColor) {
         while (true) {
             System.out.print("Choose card index/code or draw: ");
             String input = scanner.nextLine().trim().toUpperCase();
@@ -103,6 +103,7 @@ class ConsoleIO {
                 if (index >= 0 && index < hand.size()) {
                     return index;
                 }
+                GameLog.invalidInput(playerName, "card index out of range: " + index);
             } catch (NumberFormatException ignored) {
             }
             for (int i = 0; i < hand.size(); i++) {
@@ -110,9 +111,11 @@ class ConsoleIO {
                     if (CardRules.isLegal(hand.get(i), upCard, calledColor)) {
                         return i;
                     }
+                    GameLog.invalidInput(playerName, "illegal card code: " + input);
                     System.out.println("That card is not legal.");
                 }
             }
+            GameLog.invalidInput(playerName, "card not found: " + input);
             System.out.println("Card not found.");
         }
     }
@@ -123,7 +126,7 @@ class ConsoleIO {
         return answer.equalsIgnoreCase("y") || answer.equalsIgnoreCase("yes");
     }
 
-    String askColor() {
+    String askColor(String playerName) {
         while (true) {
             System.out.print("Call color R/Y/G/B: ");
             String input = scanner.nextLine().trim().toUpperCase();
@@ -139,6 +142,7 @@ class ConsoleIO {
             if (input.equals("B")) {
                 return "B";
             }
+            GameLog.invalidInput(playerName, "bad color: " + input);
             System.out.println("Bad color.");
         }
     }
