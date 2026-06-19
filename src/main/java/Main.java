@@ -20,6 +20,10 @@ public class Main {
     static boolean quiet = false;
     static Random random = new Random();
     static ConsoleIO io;
+    static final GamePersistenceService persistenceService = new GamePersistenceService();
+
+    static record RoundOutcome(String winnerName, int points) {
+    }
 
     public static void main(String[] args) {
         configureLogging();
@@ -28,6 +32,9 @@ public class Main {
         int games = 1;
         boolean human = false;
         long seed = System.currentTimeMillis();
+        boolean persist = true;
+        String statsMode = null;
+        int statsLimit = 10;
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--bots") && i + 1 < args.length) {
@@ -40,13 +47,24 @@ public class Main {
                 quiet = true;
             } else if (args[i].equals("--seed") && i + 1 < args.length) {
                 seed = Long.parseLong(args[++i]);
+            } else if (args[i].equals("--no-persist")) {
+                persist = false;
+            } else if (args[i].equals("--limit") && i + 1 < args.length) {
+                statsLimit = Integer.parseInt(args[++i]);
+            } else if (args[i].equals("--stats") && i + 1 < args.length) {
+                statsMode = args[++i];
             } else if (args[i].equals("--self-test")) {
                 selfTest();
                 return;
             } else if (args[i].equals("--help")) {
-                System.out.println("Usage: scripts/run.sh [--bots N] [--games N] [--human] [--quiet] [--seed N]");
+                printHelp();
                 return;
             }
+        }
+
+        if (statsMode != null) {
+            runStats(statsMode, statsLimit);
+            return;
         }
 
         random = new Random(seed);
@@ -58,12 +76,17 @@ public class Main {
             return;
         }
 
+        SessionTracker sessionTracker = new SessionTracker();
+
         for (int g = 1; g <= games; g++) {
             if (!quiet) {
                 System.out.println("\n=== Game " + g + " ===");
             }
             GameLog.gameStart(g, playerNames.size());
-            playGame();
+            RoundOutcome outcome = playGame();
+            if (outcome != null) {
+                sessionTracker.recordRound(g, outcome.winnerName(), outcome.points());
+            }
         }
 
         System.out.println("\nFinal scores:");
@@ -71,6 +94,31 @@ public class Main {
             System.out.println(playerNames.get(i) + ": " + scores[i]);
         }
         GameLog.sessionEnd();
+
+        if (persist) {
+            persistenceService.saveSession(sessionTracker.toRecord(playerNames, scores));
+            if (!quiet) {
+                System.out.println("Game session saved to database.");
+            }
+        }
+    }
+
+    static void printHelp() {
+        System.out.println("Usage: scripts/run.sh [--bots N] [--games N] [--human] [--quiet] [--seed N]");
+        System.out.println("                      [--no-persist]");
+        System.out.println("                      [--stats recent|wins|highscores] [--limit N]");
+    }
+
+    static void runStats(String mode, int limit) {
+        switch (mode) {
+            case "recent" -> persistenceService.printRecentGames(limit);
+            case "wins" -> persistenceService.printPlayerWinCounts();
+            case "highscores" -> persistenceService.printHighestScores(limit);
+            default -> {
+                System.out.println("Unknown stats mode: " + mode);
+                printHelp();
+            }
+        }
     }
 
     static void configureLogging() {
@@ -98,7 +146,7 @@ public class Main {
         }
     }
 
-    static void playGame() {
+    static RoundOutcome playGame() {
         deck.clear();
         String[] colors = {"R", "Y", "G", "B"};
         for (String color : colors) {
@@ -216,7 +264,7 @@ public class Main {
                     scores[currentPlayer] += points;
                     GameLog.roundEnd(name, points);
                     io.showWin(name, points);
-                    return;
+                    return new RoundOutcome(name, points);
                 }
 
                 applyCardEffect(card);
@@ -226,6 +274,7 @@ public class Main {
         }
         GameLog.gameEnd();
         io.showGameStopped();
+        return null;
     }
 
     static void applyCardEffect(String card) {
