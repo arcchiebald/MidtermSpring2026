@@ -72,6 +72,28 @@ W4   wild draw four
 draw draw a card
 ```
 
+## Persistence (Assignment 5)
+
+Game sessions are saved with JPA/Hibernate to an embedded H2 database by default.
+
+Quick start:
+
+```bash
+# Play and persist
+mvn exec:java -Dexec.args="--bots 3 --games 3 --quiet --seed 42"
+
+# View recent games
+mvn exec:java -Dexec.args="--stats recent --limit 5"
+
+# View win counts
+mvn exec:java -Dexec.args="--stats wins"
+
+# View highest scores
+mvn exec:java -Dexec.args="--stats highscores --limit 10"
+```
+
+Database setup, schema, environment variables, and test instructions are documented in `docs/database.md`.
+
 ## Package Creation
 
 ```bash
