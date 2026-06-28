@@ -6,7 +6,7 @@ class CardRules {
         if (color(card).equals(color(up))) {
             return true;
         }
-        if (!call.equals("") && color(card).equals(call)) {
+        if (call != null && !call.isEmpty() && color(card).equals(call)) {
             return true;
         }
         if (rank(card).equals(rank(up)) && !rank(card).equals("NUMBER")) {

@@ -1,35 +1,22 @@
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Random;
 import java.util.Scanner;
 import java.util.logging.LogManager;
 
 public class Main {
-    static ArrayList<String> playerNames = new ArrayList<>();
-    static ArrayList<Boolean> humanPlayers = new ArrayList<>();
-    static ArrayList<ArrayList<String>> hands = new ArrayList<>();
-    static ArrayList<String> deck = new ArrayList<>();
-    static ArrayList<String> discard = new ArrayList<>();
-    static int[] scores = new int[10];
-    static int currentPlayer = 0;
-    static int direction = 1;
-    static String upCard = "";
-    static String calledColor = "";
     static boolean quiet = false;
     static Random random = new Random();
     static ConsoleIO io;
     static final GamePersistenceService persistenceService = new GamePersistenceService();
 
-    static record RoundOutcome(String winnerName, int points) {
-    }
-
     public static void main(String[] args) {
         configureLogging();
 
         int bots = 3;
-        int games = 1;
+        int games = 0;
+        int targetScore = UnoGame.DEFAULT_TARGET_SCORE;
         boolean human = false;
         long seed = System.currentTimeMillis();
         boolean persist = true;
@@ -41,6 +28,8 @@ public class Main {
                 bots = Integer.parseInt(args[++i]);
             } else if (args[i].equals("--games") && i + 1 < args.length) {
                 games = Integer.parseInt(args[++i]);
+            } else if (args[i].equals("--target") && i + 1 < args.length) {
+                targetScore = Integer.parseInt(args[++i]);
             } else if (args[i].equals("--human")) {
                 human = true;
             } else if (args[i].equals("--quiet")) {
@@ -69,7 +58,8 @@ public class Main {
 
         random = new Random(seed);
         io = new ConsoleIO(new Scanner(System.in), quiet);
-        setupPlayers(bots, human);
+        ArrayList<String> playerNames = setupPlayerNames(bots, human);
+        ArrayList<Boolean> humanPlayers = setupHumanFlags(bots, human);
 
         if (playerNames.size() < 2 || playerNames.size() > 4) {
             System.out.println("UNO needs 2 to 4 players.");
@@ -77,26 +67,39 @@ public class Main {
         }
 
         SessionTracker sessionTracker = new SessionTracker();
+        UnoGame game = UnoGame.createSession(playerNames, random);
+        int roundNumber = 0;
 
-        for (int g = 1; g <= games; g++) {
-            if (!quiet) {
-                System.out.println("\n=== Game " + g + " ===");
+        while (!game.hasWinner(targetScore)) {
+            if (games > 0 && roundNumber >= games) {
+                break;
             }
-            GameLog.gameStart(g, playerNames.size());
-            RoundOutcome outcome = playGame();
+            roundNumber++;
+            if (!quiet) {
+                System.out.println("\n=== Round " + roundNumber + " ===");
+            }
+            GameLog.gameStart(roundNumber, playerNames.size());
+            UnoGame.RoundResult outcome = playRound(game, humanPlayers, targetScore);
             if (outcome != null) {
-                sessionTracker.recordRound(g, outcome.winnerName(), outcome.points());
+                sessionTracker.recordRound(roundNumber, outcome.winnerName(), outcome.points());
+            }
+            if (!quiet) {
+                printScores(game);
             }
         }
 
-        System.out.println("\nFinal scores:");
-        for (int i = 0; i < playerNames.size(); i++) {
-            System.out.println(playerNames.get(i) + ": " + scores[i]);
+        int winnerIndex = game.getWinningPlayerIndex(targetScore);
+        if (winnerIndex >= 0) {
+            System.out.println("\nGame over! " + playerNames.get(winnerIndex) + " wins with "
+                    + game.getScore(winnerIndex) + " points (target " + targetScore + ").");
+        } else {
+            System.out.println("\nFinal scores:");
+            printScores(game);
         }
         GameLog.sessionEnd();
 
         if (persist) {
-            persistenceService.saveSession(sessionTracker.toRecord(playerNames, scores));
+            persistenceService.saveSession(sessionTracker.toRecord(playerNames, game.getScores()));
             if (!quiet) {
                 System.out.println("Game session saved to database.");
             }
@@ -104,7 +107,7 @@ public class Main {
     }
 
     static void printHelp() {
-        System.out.println("Usage: scripts/run.sh [--bots N] [--games N] [--human] [--quiet] [--seed N]");
+        System.out.println("Usage: scripts/run.sh [--bots N] [--games N] [--target N] [--human] [--quiet] [--seed N]");
         System.out.println("                      [--no-persist]");
         System.out.println("                      [--stats recent|wins|highscores] [--limit N]");
     }
@@ -130,196 +133,146 @@ public class Main {
         }
     }
 
-    static void setupPlayers(int bots, boolean human) {
-        playerNames.clear();
-        humanPlayers.clear();
-        hands.clear();
+    static ArrayList<String> setupPlayerNames(int bots, boolean human) {
+        ArrayList<String> names = new ArrayList<>();
         if (human) {
-            playerNames.add("You");
-            humanPlayers.add(Boolean.TRUE);
-            hands.add(new ArrayList<>());
+            names.add("You");
         }
         for (int i = 1; i <= bots; i++) {
-            playerNames.add("Bot" + i);
-            humanPlayers.add(Boolean.FALSE);
-            hands.add(new ArrayList<>());
+            names.add("Bot" + i);
+        }
+        return names;
+    }
+
+    static ArrayList<Boolean> setupHumanFlags(int bots, boolean human) {
+        ArrayList<Boolean> flags = new ArrayList<>();
+        if (human) {
+            flags.add(Boolean.TRUE);
+        }
+        for (int i = 1; i <= bots; i++) {
+            flags.add(Boolean.FALSE);
+        }
+        return flags;
+    }
+
+    static void printScores(UnoGame game) {
+        for (int i = 0; i < game.getPlayerCount(); i++) {
+            System.out.println(game.getPlayerNames().get(i) + ": " + game.getScore(i));
         }
     }
 
-    static RoundOutcome playGame() {
-        deck.clear();
-        String[] colors = {"R", "Y", "G", "B"};
-        for (String color : colors) {
-            deck.add(color + "0");
-            for (int n = 1; n <= 9; n++) {
-                deck.add(color + n);
-                deck.add(color + n);
-            }
-            deck.add(color + "S");
-            deck.add(color + "S");
-            deck.add(color + "R");
-            deck.add(color + "R");
-            deck.add(color + "+2");
-            deck.add(color + "+2");
-        }
-        for (int i = 0; i < 4; i++) {
-            deck.add("W");
-            deck.add("W4");
-        }
-        Collections.shuffle(deck, random);
-        discard.clear();
-        for (int i = 0; i < hands.size(); i++) {
-            hands.get(i).clear();
-        }
-        for (int i = 0; i < playerNames.size(); i++) {
-            for (int j = 0; j < 7; j++) {
-                hands.get(i).add(draw());
-            }
-        }
-        upCard = draw();
-        while (upCard.startsWith("W")) {
-            discard.add(upCard);
-            upCard = draw();
-        }
-        calledColor = "";
-        direction = 1;
-        currentPlayer = random.nextInt(playerNames.size());
-
+    static UnoGame.RoundResult playRound(UnoGame game, ArrayList<Boolean> humanPlayers, int targetScore) {
+        game.startNewRound();
         int guard = 0;
-        while (guard < 3000) {
+
+        while (guard < UnoGame.MAX_TURN_GUARD) {
             guard++;
-            String name = playerNames.get(currentPlayer);
-            ArrayList<String> hand = hands.get(currentPlayer);
+            for (UnoGame.PenaltyResult penalty : game.applyMissedUnoPenalties()) {
+                String penalized = game.getPlayerNames().get(penalty.playerIndex());
+                GameLog.cardDrawn(penalized, "missed-uno-penalty");
+                io.showMissedUnoPenalty(penalized, penalty.cardsDrawn());
+            }
+
+            int playerIndex = game.getCurrentPlayer();
+            String name = game.getCurrentPlayerName();
+            var hand = game.getHand(playerIndex);
 
             GameLog.playerTurn(name);
-            io.showUpCard(upCard, calledColor);
+            io.showUpCard(game.getUpCard(), game.getCalledColor());
             io.showHand(name, hand);
 
             int chosen = -1;
-            if (humanPlayers.get(currentPlayer)) {
-                chosen = io.askHuman(name, hand, upCard, calledColor);
-            } else {
-                chosen = BotStrategy.chooseCard(hand, upCard, calledColor);
-            }
-
-            if (chosen == -1) {
-                String drawn = draw();
-                hand.add(drawn);
-                GameLog.cardDrawn(name, drawn);
-                io.showDraw(name, drawn);
-                if (CardRules.isLegal(drawn, upCard, calledColor)) {
-                    if (!humanPlayers.get(currentPlayer)) {
-                        chosen = hand.size() - 1;
-                    } else if (io.confirmPlayDrawnCard(drawn)) {
-                        chosen = hand.size() - 1;
-                    }
-                }
-            }
-
-            if (chosen >= 0) {
-                if (chosen >= hand.size()) {
-                    GameLog.invalidInput(name, "invalid card index");
-                    io.showInvalidIndex(name);
-                    String penalty = draw();
-                    hand.add(penalty);
-                    GameLog.cardDrawn(name, penalty);
-                    next();
-                    continue;
-                }
-
-                String card = hand.get(chosen);
-
-                if (!CardRules.isLegal(card, upCard, calledColor)) {
-                    GameLog.invalidInput(name, "illegal card " + card);
-                    io.showIllegalCard(name, card);
-                    String penalty = draw();
-                    hand.add(penalty);
-                    GameLog.cardDrawn(name, penalty);
-                    next();
-                    continue;
-                }
-
-                hand.remove(chosen);
-                discard.add(upCard);
-                upCard = card;
-                calledColor = "";
-                GameLog.cardPlayed(name, card);
-                io.showPlay(name, card);
-
-                if (card.equals("W") || card.equals("W4")) {
-                    if (humanPlayers.get(currentPlayer)) {
-                        calledColor = io.askColor(name);
+            boolean wantsDraw = false;
+            if (humanPlayers.get(playerIndex)) {
+                ConsoleIO.HumanChoice choice = io.askHuman(name, hand, game.getUpCard(), game.getCalledColor());
+                if (choice.type() == ConsoleIO.ChoiceType.UNO) {
+                    if (game.callUno(playerIndex)) {
+                        io.showUno(name);
                     } else {
-                        calledColor = BotStrategy.chooseColor(hand);
+                        io.showUnoNotAllowed(name);
                     }
-                    io.showCalledColor(name, calledColor);
+                    continue;
                 }
-
-                if (hand.size() == 1) {
+                if (choice.type() == ConsoleIO.ChoiceType.DRAW) {
+                    wantsDraw = true;
+                } else {
+                    chosen = choice.cardIndex();
+                }
+            } else {
+                if (game.canCallUno(playerIndex)) {
+                    game.callUno(playerIndex);
                     io.showUno(name);
                 }
+                chosen = BotStrategy.chooseCard(hand, game.getUpCard(), game.getCalledColor());
+            }
 
-                if (hand.isEmpty()) {
-                    int points = ScoreCalculator.scoreOpponents(hands, currentPlayer);
-                    scores[currentPlayer] += points;
-                    GameLog.roundEnd(name, points);
-                    io.showWin(name, points);
-                    return new RoundOutcome(name, points);
+            if (wantsDraw || chosen == -1) {
+                UnoGame.DrawResult drawResult = game.drawCard(playerIndex);
+                GameLog.cardDrawn(name, drawResult.card());
+                io.showDraw(name, drawResult.card());
+
+                if (drawResult.legalToPlay()) {
+                    if (!humanPlayers.get(playerIndex)) {
+                        chosen = game.getHand(playerIndex).size() - 1;
+                    } else if (io.confirmPlayDrawnCard(drawResult.card())) {
+                        chosen = game.getHand(playerIndex).size() - 1;
+                    }
                 }
 
-                applyCardEffect(card);
-            } else {
-                next();
+                if (chosen < 0) {
+                    game.passTurn();
+                    continue;
+                }
+            }
+
+            if (chosen >= game.getHand(playerIndex).size()) {
+                GameLog.invalidInput(name, "invalid card index");
+                io.showInvalidIndex(name);
+                game.applyIllegalPlayPenalty(playerIndex);
+                continue;
+            }
+
+            String card = game.getHand(playerIndex).get(chosen);
+            if (!CardRules.isLegal(card, game.getUpCard(), game.getCalledColor())) {
+                GameLog.invalidInput(name, "illegal card " + card);
+                io.showIllegalCard(name, card);
+                game.applyIllegalPlayPenalty(playerIndex);
+                continue;
+            }
+
+            String chosenColor = null;
+            if (card.equals("W") || card.equals("W4")) {
+                if (humanPlayers.get(playerIndex)) {
+                    chosenColor = io.askColor(name);
+                } else {
+                    chosenColor = BotStrategy.chooseColor(game.getHand(playerIndex));
+                }
+                io.showCalledColor(name, chosenColor);
+            }
+
+            UnoGame.PlayResult result = game.playCard(playerIndex, chosen, chosenColor);
+            GameLog.cardPlayed(name, card);
+            io.showPlay(name, card);
+
+            if (result.roundResult() != null) {
+                UnoGame.RoundResult round = result.roundResult();
+                GameLog.roundEnd(round.winnerName(), round.points());
+                io.showWin(round.winnerName(), round.points());
+                return round;
+            }
+
+            if (humanPlayers.get(playerIndex) && game.needsUnoCall(playerIndex)) {
+                io.showForgotUnoWarning(name);
+            }
+
+            if (result.playedCard() != null) {
+                game.applyPlayedCardEffect(result.playedCard());
             }
         }
+
         GameLog.gameEnd();
         io.showGameStopped();
         return null;
-    }
-
-    static void applyCardEffect(String card) {
-        TurnEffect effect = TurnEffects.fromCard(card, playerNames.size());
-        if (effect.isReverse()) {
-            direction = direction * -1;
-        }
-        if (effect.getDrawCount() > 0) {
-            next();
-            String penalized = playerNames.get(currentPlayer);
-            for (int i = 0; i < effect.getDrawCount(); i++) {
-                String drawn = draw();
-                hands.get(currentPlayer).add(drawn);
-                GameLog.cardDrawn(penalized, drawn);
-            }
-            io.showDrawPenalty(playerNames.get(currentPlayer), effect.getDrawCount());
-            next();
-            return;
-        }
-        for (int i = 0; i < effect.getAdvanceCount(); i++) {
-            next();
-        }
-    }
-
-    static String draw() {
-        if (deck.isEmpty()) {
-            deck.addAll(discard);
-            discard.clear();
-            Collections.shuffle(deck, random);
-        }
-        if (deck.isEmpty()) {
-            return "W";
-        }
-        return deck.remove(0);
-    }
-
-
-    static void next() {
-        currentPlayer += direction;
-        if (currentPlayer >= playerNames.size()) {
-            currentPlayer = 0;
-        }
-        if (currentPlayer < 0) {
-            currentPlayer = playerNames.size() - 1;
-        }
     }
 
     static void selfTest() {
@@ -334,12 +287,16 @@ public class Main {
         if (CardRules.isLegal("W4", "R9", "")) passed++; else fail("wild draw four legal");
         if (CardRules.isLegal("B3", "W", "B")) passed++; else fail("called color");
         if (!CardRules.isLegal("B3", "R9", "")) passed++; else fail("illegal mismatch");
+        if (DeckFactory.createStandardDeck().size() == DeckFactory.STANDARD_DECK_SIZE) passed++; else fail("deck size");
 
         TurnEffect skip = TurnEffects.fromCard("RS", 4);
         if (skip.getAdvanceCount() == 2 && skip.getDrawCount() == 0 && !skip.isReverse()) passed++; else fail("skip effect");
 
         TurnEffect reverseTwo = TurnEffects.fromCard("RR", 2);
         if (reverseTwo.getAdvanceCount() == 2 && reverseTwo.isReverse()) passed++; else fail("reverse effect two players");
+
+        TurnEffect reverseFour = TurnEffects.fromCard("RR", 4);
+        if (reverseFour.getAdvanceCount() == 1 && reverseFour.isReverse()) passed++; else fail("reverse effect four players");
 
         TurnEffect drawTwo = TurnEffects.fromCard("G+2", 4);
         if (drawTwo.getAdvanceCount() == 2 && drawTwo.getDrawCount() == 2) passed++; else fail("draw two effect");
@@ -351,9 +308,7 @@ public class Main {
         h.add("B3");
         h.add("R4");
         h.add("W");
-        upCard = "R9";
-        calledColor = "";
-        if (BotStrategy.chooseCard(h, upCard, calledColor) == 1) passed++; else fail("bot normal before wild");
+        if (BotStrategy.chooseCard(h, "R9", "") == 1) passed++; else fail("bot normal before wild");
 
         ArrayList<String> h2 = new ArrayList<>();
         h2.add("B1");
@@ -374,16 +329,14 @@ public class Main {
         scoreHands.add(other2);
         if (ScoreCalculator.scoreOpponents(scoreHands, 0) == 9 + 20 + 50) passed++; else fail("score opponents");
 
-        deck.clear();
-        discard.clear();
-        discard.add("R5");
-        random = new Random(1);
-        String reshuffled = draw();
-        if (reshuffled.equals("R5") && discard.isEmpty()) passed++; else fail("draw reshuffle");
-
-        deck.clear();
-        discard.clear();
-        if (draw().equals("W")) passed++; else fail("draw fallback");
+        UnoGame game = UnoGame.createSession(java.util.List.of("A", "B", "C"), new Random(1));
+        game.setHandForTesting(0, java.util.List.of("R1"));
+        game.setHandForTesting(1, java.util.List.of("B2"));
+        game.setHandForTesting(2, java.util.List.of("G2"));
+        game.setUpCardForTesting("R9");
+        game.setCurrentPlayerForTesting(0);
+        UnoGame.PlayResult win = game.playCard(0, 0, null);
+        if (win.roundResult() != null && win.roundResult().points() == 4) passed++; else fail("round win scoring");
 
         System.out.println("Passed " + passed + " characterization checks.");
     }

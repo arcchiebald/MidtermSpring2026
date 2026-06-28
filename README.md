@@ -1,155 +1,98 @@
-# Midterm UNO CLI
+# UNO CLI — Final Project
 
-This is a standalone CLI UNO-like game.
-
-The code is written as plausible feature-grown Java: almost everything lives in one procedural `Main` class. It works, but it has mixed responsibilities, duplicated rule logic, primitive-heavy card handling, global state, and condition-heavy gameplay code. The goal is to refactor it safely, not rewrite it.
+A command-line UNO game with full rule support, testable game architecture, and optional database persistence.
 
 ## Prerequisites
 
 - Java 17 or newer
 - Maven 3.9+
 
-## Local Build
+## Quick Start
+
+Bot game to 500 points:
 
 ```bash
-mvn compile
-```
-
-Or use the helper script:
-
-```bash
-scripts/compile.sh
-```
-
-## Local Test
-
-```bash
-mvn test
-```
-
-Or:
-
-```bash
-scripts/test.sh
-```
-
-## Local Run
-
-Bot games:
-
-```bash
-mvn exec:java -Dexec.args="--bots 3 --games 5 --quiet"
+mvn exec:java -Dexec.args="--bots 3 --quiet --seed 42"
 ```
 
 Interactive game:
 
 ```bash
-mvn exec:java -Dexec.args="--human --bots 2 --games 1"
+mvn exec:java -Dexec.args="--human --bots 2"
 ```
 
-Or use the helper script:
+## Build and Test
 
 ```bash
-scripts/run.sh --bots 3 --games 5 --quiet
-scripts/run.sh --human --bots 2 --games 1
-```
-
-Run the packaged JAR:
-
-```bash
-java -jar target/uno-cli-1.0.0.jar --bots 3 --games 1 --quiet
-```
-
-Card input examples:
-
-```text
-R5   red 5
-YS   yellow skip
-BR   blue reverse
-G+2  green draw two
-W    wild
-W4   wild draw four
-draw draw a card
-```
-
-## Persistence (Assignment 5)
-
-Game sessions are saved with JPA/Hibernate to an embedded H2 database by default.
-
-Quick start:
-
-```bash
-# Play and persist
-mvn exec:java -Dexec.args="--bots 3 --games 3 --quiet --seed 42"
-
-# View recent games
-mvn exec:java -Dexec.args="--stats recent --limit 5"
-
-# View win counts
-mvn exec:java -Dexec.args="--stats wins"
-
-# View highest scores
-mvn exec:java -Dexec.args="--stats highscores --limit 10"
-```
-
-Database setup, schema, environment variables, and test instructions are documented in `docs/database.md`.
-
-## Package Creation
-
-```bash
+mvn compile
+mvn test
 mvn package
 ```
 
-This creates `target/uno-cli-1.0.0.jar`.
+Helper scripts:
 
-## Docker Build
+```bash
+scripts/compile.sh
+scripts/test.sh
+scripts/run.sh --bots 3 --quiet
+scripts/run.sh --human --bots 2
+```
+
+## CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--bots N` | Number of bot players (default 3) |
+| `--human` | Add a human player |
+| `--target N` | Score to win (default 500) |
+| `--games N` | Optional round limit |
+| `--quiet` | Minimal output |
+| `--seed N` | Random seed |
+| `--no-persist` | Skip database save |
+| `--stats recent\|wins\|highscores` | View saved game stats |
+
+## Card Input
+
+```text
+R5   red 5          YS   yellow skip
+BR   blue reverse   G+2  green draw two
+W    wild           W4   wild draw four
+draw                 uno (call UNO with one card)
+```
+
+## Architecture
+
+Game rules are separated from the CLI:
+
+- `UnoGame` — state and rule execution (testable without console)
+- `CardRules`, `TurnEffects`, `ScoreCalculator`, `DeckFactory` — rule modules
+- `Main`, `ConsoleIO` — CLI only
+
+## Documentation
+
+- `docs/rules-supported.md` — implemented rules and variants
+- `docs/final-report.md` — architecture, tests, limitations
+- `docs/database.md` — persistence setup
+
+## Persistence
+
+Game sessions are saved to an embedded H2 database by default:
+
+```bash
+mvn exec:java -Dexec.args="--stats recent --limit 5"
+mvn exec:java -Dexec.args="--stats wins"
+```
+
+## Docker
 
 ```bash
 docker build -t uno-cli .
+docker run --rm -it uno-cli --bots 3 --quiet
 ```
 
-## Docker Run
+## Submission Deliverables
 
-```bash
-docker run --rm -it uno-cli --bots 3 --games 1 --quiet
-```
-
-For an interactive human game:
-
-```bash
-docker run --rm -it uno-cli --human --bots 2 --games 1
-```
-
-## Logging
-
-Game events are logged with `java.util.logging` to stderr. Logs cover game start, player turns, cards played, cards drawn, invalid input, and round or game end. Player-facing CLI output is unchanged.
-
-## Submission
-
-Submit your work through GitHub:
-
-1. Fork this repository to your GitHub account.
-2. Clone your fork locally.
-3. Complete the midterm work in your fork.
-4. Commit your changes with clear commit messages.
-5. Push your branch to GitHub.
-6. Open a pull request from your fork back to the original repository.
-
-Your pull request must include:
-
-* refactored source code
-* characterization tests
-* `docs/refactoring-report.md`
-* `docs/extension-readiness.md`
-
-Do not submit a zip file instead of a pull request unless the instructor explicitly asks for it.
-
-## Rules
-
-See `docs/rules.html` for the implemented game rules.
-
-## Midterm Materials
-
-* `docs/midterm-exam.md`: midterm brief
-* `docs/rubric.md`: grading rubric
-* `docs/refactoring-guide.md`: suggested refactoring path
+- Source code and tests
+- `README.md`
+- `docs/rules-supported.md`
+- `docs/final-report.md`

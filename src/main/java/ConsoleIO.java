@@ -59,11 +59,50 @@ class ConsoleIO {
         System.out.println(name + " calls " + calledColor);
     }
 
+    enum ChoiceType {
+        CARD, DRAW, UNO
+    }
+
+    record HumanChoice(ChoiceType type, int cardIndex) {
+        static HumanChoice draw() {
+            return new HumanChoice(ChoiceType.DRAW, -1);
+        }
+
+        static HumanChoice uno() {
+            return new HumanChoice(ChoiceType.UNO, -1);
+        }
+
+        static HumanChoice card(int index) {
+            return new HumanChoice(ChoiceType.CARD, index);
+        }
+    }
+
     void showUno(String name) {
         if (quiet) {
             return;
         }
         System.out.println(name + " says UNO!");
+    }
+
+    void showUnoNotAllowed(String name) {
+        if (quiet) {
+            return;
+        }
+        System.out.println(name + " can only call UNO with exactly 2 cards left, before playing one.");
+    }
+
+    void showMissedUnoPenalty(String name, int count) {
+        if (quiet) {
+            return;
+        }
+        System.out.println(name + " missed UNO and draws " + count + " penalty cards.");
+    }
+
+    void showForgotUnoWarning(String name) {
+        if (quiet) {
+            return;
+        }
+        System.out.println(name + " forgot to call UNO before playing. Penalty coming next turn (+2 cards).");
     }
 
     void showWin(String name, int points) {
@@ -91,17 +130,20 @@ class ConsoleIO {
         System.out.println("Game stopped at safety limit.");
     }
 
-    int askHuman(String playerName, List<String> hand, String upCard, String calledColor) {
+    HumanChoice askHuman(String playerName, List<String> hand, String upCard, String calledColor) {
         while (true) {
-            System.out.print("Choose card index/code or draw: ");
+            System.out.print("Choose card index/code, draw, or uno (with 2 cards left): ");
             String input = scanner.nextLine().trim().toUpperCase();
             if (input.equals("DRAW")) {
-                return -1;
+                return HumanChoice.draw();
+            }
+            if (input.equals("UNO")) {
+                return HumanChoice.uno();
             }
             try {
                 int index = Integer.parseInt(input);
                 if (index >= 0 && index < hand.size()) {
-                    return index;
+                    return HumanChoice.card(index);
                 }
                 GameLog.invalidInput(playerName, "card index out of range: " + index);
             } catch (NumberFormatException ignored) {
@@ -109,7 +151,7 @@ class ConsoleIO {
             for (int i = 0; i < hand.size(); i++) {
                 if (hand.get(i).equals(input)) {
                     if (CardRules.isLegal(hand.get(i), upCard, calledColor)) {
-                        return i;
+                        return HumanChoice.card(i);
                     }
                     GameLog.invalidInput(playerName, "illegal card code: " + input);
                     System.out.println("That card is not legal.");

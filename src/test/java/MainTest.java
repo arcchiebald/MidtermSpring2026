@@ -1,12 +1,25 @@
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MainTest {
+    @Test
+    void reverseEffectFourPlayers() {
+        TurnEffect reverseFour = TurnEffects.fromCard("RR", 4);
+        assertEquals(1, reverseFour.getAdvanceCount());
+        assertTrue(reverseFour.isReverse());
+    }
+
+    @Test
+    void standardDeckSize() {
+        assertEquals(108, DeckFactory.createStandardDeck().size());
+    }
+
     @Test
     void colorR5() {
         assertEquals("R", CardRules.color("R5"));
@@ -122,19 +135,19 @@ class MainTest {
 
     @Test
     void drawReshuffle() {
-        Main.deck.clear();
-        Main.discard.clear();
-        Main.discard.add("R5");
-        Main.random = new java.util.Random(1);
-        String reshuffled = Main.draw();
+        UnoGame game = UnoGame.createSession(java.util.List.of("A", "B"), new Random(1));
+        game.setDeckForTesting(new ArrayList<>());
+        game.setDiscardForTesting(new ArrayList<>(java.util.List.of("R5", "Y3")));
+        String reshuffled = game.drawFromDeck();
         assertEquals("R5", reshuffled);
-        assertTrue(Main.discard.isEmpty());
+        assertTrue(game.getDiscardForTesting().isEmpty());
     }
 
     @Test
     void drawFallback() {
-        Main.deck.clear();
-        Main.discard.clear();
-        assertEquals("W", Main.draw());
+        UnoGame game = UnoGame.createSession(java.util.List.of("A", "B"), new Random(1));
+        game.setDeckForTesting(new ArrayList<>());
+        game.setDiscardForTesting(new ArrayList<>());
+        assertEquals("W", game.drawFromDeck());
     }
 }
